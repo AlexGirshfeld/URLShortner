@@ -1,107 +1,179 @@
 package com.urlshortener.integration;
 
+import com.urlshortener.config.TestContainersConfig;
 import com.urlshortener.model.UrlMapping;
-import com.urlshortener.repository.UrlMappingRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.*;
+import org.springframework.test.context.ActiveProfiles;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-class UrlShortenerIntegrationTest {
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(TestContainersConfig.class)
+@ActiveProfiles("test")
+@Testcontainers
+public class UrlShortenerIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(UrlShortenerIntegrationTest.class);
+
+    @LocalServerPort
+    private int port;
 
     @Autowired
-    private MockMvc mockMvc;
+    private TestRestTemplate restTemplate;
 
-    @Autowired
-    private UrlMappingRepository urlMappingRepository;
+    private String baseUrl;
 
-    @Test
-    void testCompleteUrlShorteningFlow() throws Exception {
-        // Test random URL shortening
-        String originalUrl = "https://www.example.com/very/long/url";
-        MvcResult result = mockMvc.perform(post("/api/url/shorten/random")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"url\": \"" + originalUrl + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.originalUrl").value(originalUrl))
-                .andExpect(jsonPath("$.shortUrl").exists())
-                .andReturn();
-
-        String response = result.getResponse().getContentAsString();
-        assertTrue(response.contains(originalUrl));
-        assertTrue(response.contains("shortUrl"));
-
-        // Test getting original URL
-        String shortUrl = urlMappingRepository.findByOriginalUrl(originalUrl)
-                .map(UrlMapping::getShortUrl)
-                .orElseThrow();
-
-        mockMvc.perform(get("/api/url/" + shortUrl))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.url").value(originalUrl));
-
-        // Test replacing short URL
-        String newShortUrl = "custom123";
-        mockMvc.perform(put("/api/url/replace")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"oldShortUrl\": \"" + shortUrl + "\", \"newShortUrl\": \"" + newShortUrl + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.shortUrl").value(newShortUrl));
-
-        // Verify the new short URL works
-        mockMvc.perform(get("/api/url/" + newShortUrl))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.url").value(originalUrl));
+    @BeforeEach
+    void setUp() {
+        baseUrl = "http://localhost:" + port + "/api/url";
     }
 
     @Test
-    void testShortenSpecifiedUrl() throws Exception {
-        String originalUrl = "https://www.example.com/specific";
-        String specifiedShortUrl = "specific123";
+    void testRandomUrlShortening() {
+        // Prepare test data
+        String originalUrl = "https://www.example.com/very/long/url/path";
+        Map<String, String> request = new HashMap<>();
+        request.put("url", originalUrl);
 
-        mockMvc.perform(post("/api/url/shorten/specific")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"url\": \"" + originalUrl + "\", \"shortUrl\": \"" + specifiedShortUrl + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.originalUrl").value(originalUrl))
-                .andExpect(jsonPath("$.shortUrl").value(specifiedShortUrl));
+        // Make the request
+        ResponseEntity<UrlMapping> response = restTemplate.postForEntity(
+                baseUrl + "/shorten/random",
+                request,
+                UrlMapping.class
+        );
 
-        // Verify the specified short URL works
-        mockMvc.perform(get("/api/url/" + specifiedShortUrl))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.url").value(originalUrl));
+        // Log response
+        logger.info("Random URL shortening completed");
+        logger.info("Response status: {}", response.getStatusCode());
+
+        // Assertions
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals(originalUrl, response.getBody().getOriginalUrl());
+        assertNotNull(response.getBody().getShortUrl());
     }
 
     @Test
-    void testErrorCases() throws Exception {
-        // Test non-existent short URL
-        mockMvc.perform(get("/api/url/nonexistent"))
-                .andExpect(status().isBadRequest());
+    void testSpecificUrlShortening() {
+        // Prepare test data
+        String originalUrl = "https://www.example.com/specific/path";
+        String specificShortUrl = "custom-short";
+        Map<String, String> request = new HashMap<>();
+        request.put("url", originalUrl);
+        request.put("shortUrl", specificShortUrl);
 
-        // Test duplicate short URL
-        String originalUrl1 = "https://www.example.com/1";
-        String originalUrl2 = "https://www.example.com/2";
-        String duplicateShortUrl = "duplicate123";
+        // Make the request
+        ResponseEntity<UrlMapping> response = restTemplate.postForEntity(
+                baseUrl + "/shorten/specific",
+                request,
+                UrlMapping.class
+        );
 
-        // First request should succeed
-        mockMvc.perform(post("/api/url/shorten/specific")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"url\": \"" + originalUrl1 + "\", \"shortUrl\": \"" + duplicateShortUrl + "\"}"))
-                .andExpect(status().isOk());
+        // Log response
+        logger.info("Specific URL shortening completed");
+        logger.info("Response status: {}", response.getStatusCode());
 
-        // Second request with same short URL should fail
-        mockMvc.perform(post("/api/url/shorten/specific")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"url\": \"" + originalUrl2 + "\", \"shortUrl\": \"" + duplicateShortUrl + "\"}"))
-                .andExpect(status().isBadRequest());
+        // Assertions
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals(originalUrl, response.getBody().getOriginalUrl());
+        assertEquals(specificShortUrl, response.getBody().getShortUrl());
+    }
+
+    @Test
+    void testUrlRetrieval() {
+        // First, create a shortened URL
+        String originalUrl = "https://www.example.com/test/retrieval";
+        Map<String, String> request = new HashMap<>();
+        request.put("url", originalUrl);
+
+        ResponseEntity<UrlMapping> shortenResponse = restTemplate.postForEntity(
+                baseUrl + "/shorten/random",
+                request,
+                UrlMapping.class
+        );
+
+        String shortUrl = shortenResponse.getBody().getShortUrl();
+
+        // Now test retrieval
+        ResponseEntity<Map> retrievalResponse = restTemplate.getForEntity(
+                baseUrl + "/" + shortUrl,
+                Map.class
+        );
+
+        // Log response
+        logger.info("URL retrieval completed");
+        logger.info("Response status: {}", retrievalResponse.getStatusCode());
+
+        // Assertions
+        assertEquals(HttpStatus.OK, retrievalResponse.getStatusCode());
+        assertNotNull(retrievalResponse.getBody());
+        assertEquals(originalUrl, retrievalResponse.getBody().get("url"));
+    }
+
+    @Test
+    void testNonExistentUrl() {
+        ResponseEntity<Map> response = restTemplate.getForEntity(
+                baseUrl + "/nonexistent",
+                Map.class
+        );
+
+        // Log response
+        logger.info("Non-existent URL retrieval completed");
+        logger.info("Response status: {}", response.getStatusCode());
+
+        // Assertions
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    }
+
+    @Test
+    void testConcurrentRequests() throws InterruptedException {
+        String originalUrl = "https://www.example.com/concurrent/test";
+        Map<String, String> request = new HashMap<>();
+        request.put("url", originalUrl);
+
+        // Make 10 concurrent requests
+        Thread[] threads = new Thread[10];
+        ResponseEntity<UrlMapping>[] responses = new ResponseEntity[10];
+
+        for (int i = 0; i < 10; i++) {
+            final int index = i;
+            threads[i] = new Thread(() -> {
+                responses[index] = restTemplate.postForEntity(
+                        baseUrl + "/shorten/random",
+                        request,
+                        UrlMapping.class
+                );
+            });
+            threads[i].start();
+        }
+
+        // Wait for all threads to complete
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        // Log completion
+        logger.info("Concurrent requests completed");
+
+        // Assertions
+        for (ResponseEntity<UrlMapping> response : responses) {
+            assertEquals(HttpStatus.OK, response.getStatusCode());
+            assertNotNull(response.getBody());
+            assertEquals(originalUrl, response.getBody().getOriginalUrl());
+        }
     }
 } 

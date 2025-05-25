@@ -3,6 +3,7 @@ package com.urlshortener.controller;
 import com.urlshortener.model.UrlMapping;
 import com.urlshortener.service.UrlShortenerService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,26 +16,43 @@ public class UrlShortenerController {
 
     @PostMapping("/shorten/random")
     public ResponseEntity<UrlMapping> shortenRandomURL(@RequestBody UrlRequest request) {
-        UrlMapping mapping = urlShortenerService.shortenRandomURL(request.getUrl());
-        return ResponseEntity.ok(mapping);
+        try {
+            UrlMapping mapping = urlShortenerService.createShortUrl(request.getUrl());
+            return ResponseEntity.ok(mapping);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @PostMapping("/shorten/specific")
     public ResponseEntity<UrlMapping> shortenSpecifiedURL(@RequestBody SpecificUrlRequest request) {
-        UrlMapping mapping = urlShortenerService.shortenSpecifiedURL(request.getUrl(), request.getShortUrl());
-        return ResponseEntity.ok(mapping);
+        try {
+            UrlMapping mapping = urlShortenerService.createSpecificShortUrl(request.getUrl(), request.getShortUrl());
+            return ResponseEntity.ok(mapping);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @GetMapping("/{shortUrl}")
     public ResponseEntity<UrlResponse> getOriginalUrl(@PathVariable String shortUrl) {
-        String originalUrl = urlShortenerService.getOriginalUrl(shortUrl);
-        return ResponseEntity.ok(new UrlResponse(originalUrl));
+        return urlShortenerService.getOriginalUrl(shortUrl)
+                .map(url -> ResponseEntity.ok(new UrlResponse(url)))
+                .orElse(ResponseEntity.badRequest().build());
     }
 
     @PutMapping("/replace")
     public ResponseEntity<UrlMapping> replaceShortUrl(@RequestBody ReplaceUrlRequest request) {
-        UrlMapping mapping = urlShortenerService.replaceShortUrl(request.getOldShortUrl(), request.getNewShortUrl());
-        return ResponseEntity.ok(mapping);
+        try {
+            // Delete old URL and create new one
+            String originalUrl = urlShortenerService.getOriginalUrl(request.getOldShortUrl())
+                    .orElseThrow(() -> new IllegalArgumentException("Old short URL not found"));
+            
+            UrlMapping mapping = urlShortenerService.createSpecificShortUrl(originalUrl, request.getNewShortUrl());
+            return ResponseEntity.ok(mapping);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 }
 

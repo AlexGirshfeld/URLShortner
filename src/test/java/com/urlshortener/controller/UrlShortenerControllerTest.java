@@ -9,6 +9,8 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.ResponseEntity;
 
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -33,7 +35,7 @@ class UrlShortenerControllerTest {
         UrlMapping expectedMapping = new UrlMapping();
         expectedMapping.setOriginalUrl(originalUrl);
         expectedMapping.setShortUrl("random123");
-        when(urlShortenerService.shortenRandomURL(originalUrl)).thenReturn(expectedMapping);
+        when(urlShortenerService.createShortUrl(originalUrl)).thenReturn(expectedMapping);
 
         // Act
         ResponseEntity<UrlMapping> response = urlShortenerController.shortenRandomURL(new UrlRequest(originalUrl));
@@ -42,7 +44,7 @@ class UrlShortenerControllerTest {
         assertNotNull(response);
         assertEquals(200, response.getStatusCodeValue());
         assertEquals(expectedMapping, response.getBody());
-        verify(urlShortenerService).shortenRandomURL(originalUrl);
+        verify(urlShortenerService).createShortUrl(originalUrl);
     }
 
     @Test
@@ -53,7 +55,7 @@ class UrlShortenerControllerTest {
         UrlMapping expectedMapping = new UrlMapping();
         expectedMapping.setOriginalUrl(originalUrl);
         expectedMapping.setShortUrl(specifiedShortUrl);
-        when(urlShortenerService.shortenSpecifiedURL(originalUrl, specifiedShortUrl)).thenReturn(expectedMapping);
+        when(urlShortenerService.createSpecificShortUrl(originalUrl, specifiedShortUrl)).thenReturn(expectedMapping);
 
         // Act
         SpecificUrlRequest request = new SpecificUrlRequest();
@@ -65,7 +67,7 @@ class UrlShortenerControllerTest {
         assertNotNull(response);
         assertEquals(200, response.getStatusCodeValue());
         assertEquals(expectedMapping, response.getBody());
-        verify(urlShortenerService).shortenSpecifiedURL(originalUrl, specifiedShortUrl);
+        verify(urlShortenerService).createSpecificShortUrl(originalUrl, specifiedShortUrl);
     }
 
     @Test
@@ -73,7 +75,7 @@ class UrlShortenerControllerTest {
         // Arrange
         String shortUrl = "test123";
         String originalUrl = "https://www.example.com";
-        when(urlShortenerService.getOriginalUrl(shortUrl)).thenReturn(originalUrl);
+        when(urlShortenerService.getOriginalUrl(shortUrl)).thenReturn(Optional.of(originalUrl));
 
         // Act
         ResponseEntity<UrlResponse> response = urlShortenerController.getOriginalUrl(shortUrl);
@@ -86,13 +88,32 @@ class UrlShortenerControllerTest {
     }
 
     @Test
+    void getOriginalUrl_ShouldReturnBadRequest_WhenUrlNotFound() {
+        // Arrange
+        String shortUrl = "test123";
+        when(urlShortenerService.getOriginalUrl(shortUrl)).thenReturn(Optional.empty());
+
+        // Act
+        ResponseEntity<UrlResponse> response = urlShortenerController.getOriginalUrl(shortUrl);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(400, response.getStatusCodeValue());
+        verify(urlShortenerService).getOriginalUrl(shortUrl);
+    }
+
+    @Test
     void replaceShortUrl_ShouldReturnUpdatedMapping() {
         // Arrange
         String oldShortUrl = "old123";
         String newShortUrl = "new456";
+        String originalUrl = "https://www.example.com";
         UrlMapping expectedMapping = new UrlMapping();
+        expectedMapping.setOriginalUrl(originalUrl);
         expectedMapping.setShortUrl(newShortUrl);
-        when(urlShortenerService.replaceShortUrl(oldShortUrl, newShortUrl)).thenReturn(expectedMapping);
+        
+        when(urlShortenerService.getOriginalUrl(oldShortUrl)).thenReturn(Optional.of(originalUrl));
+        when(urlShortenerService.createSpecificShortUrl(originalUrl, newShortUrl)).thenReturn(expectedMapping);
 
         // Act
         ReplaceUrlRequest request = new ReplaceUrlRequest();
@@ -104,7 +125,29 @@ class UrlShortenerControllerTest {
         assertNotNull(response);
         assertEquals(200, response.getStatusCodeValue());
         assertEquals(expectedMapping, response.getBody());
-        verify(urlShortenerService).replaceShortUrl(oldShortUrl, newShortUrl);
+        verify(urlShortenerService).getOriginalUrl(oldShortUrl);
+        verify(urlShortenerService).createSpecificShortUrl(originalUrl, newShortUrl);
+    }
+
+    @Test
+    void replaceShortUrl_ShouldReturnBadRequest_WhenOldUrlNotFound() {
+        // Arrange
+        String oldShortUrl = "old123";
+        String newShortUrl = "new456";
+        
+        when(urlShortenerService.getOriginalUrl(oldShortUrl)).thenReturn(Optional.empty());
+
+        // Act
+        ReplaceUrlRequest request = new ReplaceUrlRequest();
+        request.setOldShortUrl(oldShortUrl);
+        request.setNewShortUrl(newShortUrl);
+        ResponseEntity<UrlMapping> response = urlShortenerController.replaceShortUrl(request);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(400, response.getStatusCodeValue());
+        verify(urlShortenerService).getOriginalUrl(oldShortUrl);
+        verify(urlShortenerService, never()).createSpecificShortUrl(any(), any());
     }
 }
 
